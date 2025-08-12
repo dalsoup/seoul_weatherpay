@@ -5,11 +5,8 @@ import { predict, type PredictRow } from '../lib/api'
 
 type Props = {
   onResult: (v: number, meta: { district?: string; date?: string }) => void
-  /** 대시보드/지도에서 선택된 구를 외부에서 주입 */
   district?: string
-  /** 값 변동 시 자동으로 예측 호출 (디바운스 내장) */
   autoPredictOnChange?: boolean
-  /** 자동 예측 디바운스(ms) */
   debounceMs?: number
 }
 
@@ -32,7 +29,7 @@ export default function PredictForm({
   const [error, setError] = useState<string | null>(null)
   const timerRef = useRef<number | null>(null)
 
-  // 외부 district 변경 시 동기화 (타입 안전)
+  // 외부 district 변경 시 동기화
   useEffect(() => {
     if (typeof district === 'string' && district.length > 0 && district !== form.district) {
       setForm((p) => ({ ...p, district }))
@@ -46,28 +43,40 @@ export default function PredictForm({
       [k]: k === 'district' || k === 'date' ? v : Number(v),
     }))
 
-  // 체감온도 계산 (KMA 2022) — 없으면 undefined
+  // 체감온도 계산 (KMA 2022)
   const thi = useMemo(() => {
     const val = computeHeatIndexKMA2022(form.TMX, form.REH)
     return val ?? undefined
   }, [form.TMX, form.REH])
 
-  // 예측 호출
+  // 예측 호출 — 모델 요구 5피처로 변환해 전송
   const callPredict = async () => {
     setLoading(true)
     setError(null)
     try {
-      // 안전값: thi가 없으면 TMX 사용, 소수1자리
-      const thiSafe = Number(((thi ?? form.TMX) as number).toFixed(1))
+      const tmx = form.TMX
+      const tmn = form.TMN
+      const reh = form.REH
 
-      // 🔑 서버 호환 위해 두 키 모두 포함
+      // 안전 처리: thi가 없으면 TMX로 폴백, 평균기온 소수1자리
+      const thiSafe = Number(((thi ?? tmx)).toFixed(1))
+      const avgSafe = Number((((tmx + tmn) / 2).toFixed(1)))
+
+      // ✅ 모델 입력 5개 컬럼 + (메타) district/date
       const row = {
-        ...form,
+        district: form.district,
+        date: form.date,
         '최고체감온도(°C)': thiSafe,
-        '최고체감온도(℃)': thiSafe,
-      } as PredictRow & Record<'최고체감온도(°C)' | '최고체감온도(℃)', number>
+        '최고기온(°C)': tmx,
+        '평균기온(°C)': avgSafe,
+        '최저기온(°C)': tmn,
+        '평균상대습도(%)': reh,
+      }
 
-      const res = await predict([row]) // 백엔드: rows 배열
+      // 필요시 확인용
+      // console.log('REQ row:', row)
+
+      const res = await predict([row] as any) // rows 그대로 전송
       const item = (res as any)?.items?.[0] ?? (res as any)
       onResult(item?.P_pred ?? 0, { district: item?.district, date: item?.date })
     } catch (err: any) {
@@ -114,7 +123,7 @@ export default function PredictForm({
 
       {/* 표시용(읽기전용): 계산된 체감온도 */}
       <div className="col-span-2 md:col-span-1">
-        <div className="text-sm text-neutral-300 mb-1">최고체감온도(℃)</div>
+        <div className="text-sm text-neutral-300 mb-1">최고체감온도(°C)</div>
         <div className="px-3 py-2 rounded-xl bg-neutral-900 border border-neutral-800 text-neutral-200">
           {thi !== undefined ? thi.toFixed(1) : '—'}
         </div>
