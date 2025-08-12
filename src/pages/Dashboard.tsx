@@ -1,4 +1,4 @@
-
+// src/pages/Dashboard.tsx
 import React, { useEffect, useState } from 'react'
 import { health, version } from '../lib/api'
 import PredictForm from '../components/PredictForm'
@@ -16,38 +16,75 @@ export default function Dashboard() {
   const [ok, setOk] = useState(false)
   const [modelVersion, setModelVersion] = useState('')
   const [pred, setPred] = useState<number | null>(null)
-  const [meta, setMeta] = useState<{district?: string, date?: string}>({})
+  const [meta, setMeta] = useState<{ district?: string; date?: string }>({})
+  const [selectedDistrict, setSelectedDistrict] = useState<string>('종로구')
 
   useEffect(() => {
-    health().then(r => setOk(r.status === 'ok')).catch(()=>setOk(false))
-    version().then(v => setModelVersion(v.model_version)).catch(()=>setModelVersion(''))
+    health().then(r => setOk(r.status === 'ok')).catch(() => setOk(false))
+    version().then(v => setModelVersion(v.model_version)).catch(() => setModelVersion(''))
   }, [])
 
   return (
     <div className="min-h-screen max-w-[1200px] mx-auto px-6 py-8 font-sans">
+      {/* Header */}
       <header className="flex items-center justify-between mb-8">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-2xl bg-brand flex items-center justify-center">🌤️</div>
           <div>
             <h1 className="text-xl font-semibold">Seoul Weather Pay</h1>
-            <p className="text-xs text-neutral-400">Model: {modelVersion || 'loading…'} · API {ok ? '🟢' : '🔴'}</p>
+            <p className="text-xs text-neutral-400">
+              Model: {modelVersion || 'loading…'} · API {ok ? '🟢' : '🔴'}
+            </p>
           </div>
         </div>
-        <div className="text-neutral-300 text-sm">
-          서울, 대한민국
-        </div>
+        <div className="text-neutral-300 text-sm">서울, 대한민국</div>
       </header>
 
+      {/* Main */}
       <section className="grid grid-cols-1 lg:grid-cols-[1.2fr_1fr] gap-6">
-        <MapChoroplethECharts data={demoData} />
+        {/* Left: Choropleth Map */}
+        <MapChoroplethECharts
+          data={demoData}
+          selectedName={selectedDistrict}
+          onSelectDistrict={(name) => {
+            setSelectedDistrict(name)
+            // 선택 즉시 PredictForm가 자동 예측하도록 prop으로 연결
+          }}
+        />
+
+        {/* Right: Form + Result */}
         <div className="flex flex-col gap-4">
           <div className="card p-5">
             <h2 className="text-lg font-semibold mb-4">예측 입력</h2>
-            <PredictForm onResult={(v, m)=>{ setPred(v); setMeta(m) }} />
+
+            {/* 
+              PredictForm는 아래 prop을 지원한다고 가정:
+              - district: string (외부 선택 구 반영)
+              - autoPredictOnChange: boolean (값 변경 시 자동 예측)
+              - onResult: (value:number, meta:{district:string; date:string}) => void
+            */}
+            <PredictForm
+              district={selectedDistrict}
+              autoPredictOnChange
+              onResult={(value, m) => {
+                setPred(value)
+                setMeta(m)
+                // 선택 구가 meta에 없다면 카드에 선택 구를 유지
+              }}
+            />
           </div>
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <ResultCard title="예측 환자 수" value={pred !== null ? `${pred.toFixed(2)} 명` : '—'} hint="HeatX 모델 예측 결과" />
-            <ResultCard title="대상" value={meta.district || '—'} hint={meta.date || ''} />
+            <ResultCard
+              title="예측 환자 수"
+              value={pred !== null ? `${pred.toFixed(2)} 명` : '—'}
+              hint="HeatX 모델 예측 결과"
+            />
+            <ResultCard
+              title="대상"
+              value={meta.district || selectedDistrict || '—'}
+              hint={meta.date || ''}
+            />
           </div>
         </div>
       </section>
