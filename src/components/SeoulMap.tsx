@@ -4,44 +4,73 @@ import * as echarts from 'echarts';
 
 export default function SeoulMap() {
   const divRef = useRef<HTMLDivElement>(null);
+  const inited = useRef(false);
 
   useEffect(() => {
-    if (!divRef.current) return;
-    const chart = echarts.init(divRef.current);
+    if (!divRef.current || inited.current) return;
+    inited.current = true;
 
-    fetch('/seoul_districts.geojson') // 여기에 방금 받은 GeoJSON 저장
-      .then((r) => r.json())
-      .then((geojson) => {
+    const chart =
+      echarts.getInstanceByDom(divRef.current) || echarts.init(divRef.current);
+
+    chart.showLoading('default', { text: 'Loading map…' });
+
+    const url = `/seoul_districts.geojson?v=${Date.now()}`; // 🔥 캐시 무시
+
+    (async () => {
+      try {
+        const res = await fetch(url, { cache: 'no-store' });
+        if (!res.ok) throw new Error(`GeoJSON ${res.status}`);
+        const geojson = await res.json();
+
+        // ✅ 진단 로그
+        const featLen = geojson?.features?.length ?? 0;
+        const keys = Object.keys(geojson?.features?.[0]?.properties ?? {});
+        console.log('[SeoulMap] features:', featLen, 'properties keys:', keys);
+
+        // 🔑 구 이름 필드(동 레벨 파일이면 보통 'sggnm'이 구 이름)
+        const NAME_FIELD = keys.includes('sggnm')
+          ? 'sggnm'
+          : keys.includes('SIG_KOR_NM')
+          ? 'SIG_KOR_NM'
+          : keys.includes('adm_nm')
+          ? 'adm_nm'
+          : 'name';
+
         echarts.registerMap('seoul', geojson as any);
 
-        chart.setOption({
-          geo: {
-            map: 'seoul',
-            roam: true,
+        chart.setOption(
+          {
+            geo: { map: 'seoul', roam: true },
+            series: [
+              {
+                type: 'map',
+                geoIndex: 0,
+                nameProperty: NAME_FIELD, // ← 여기!
+                data: [
+                  // 테스트로 값 2개만
+                  { name: '종로구', value: 20 },
+                  { name: '중구', value: 15 },
+                ],
+              },
+            ],
+            tooltip: { trigger: 'item' },
+            visualMap: { min: 0, max: 100, calculable: true },
           },
-          series: [
-            {
-              type: 'map',
-              geoIndex: 0,
-              // ⬇️ 동 파일이지만 '구' 이름 필드로 묶어서 칠함
-              nameProperty: 'sggnm',
-              data: [
-                { name: '종로구', value: 20 },
-                { name: '중구', value: 15 },
-                // ... 나머지 구들
-              ],
-            },
-          ],
-          tooltip: { trigger: 'item' },
-          visualMap: { min: 0, max: 100, calculable: true },
-        });
-      });
+          { notMerge: true }
+        );
+      } catch (e) {
+        console.error('[SeoulMap] failed:', e);
+      } finally {
+        chart.hideLoading();
+      }
+    })();
 
     const onResize = () => chart.resize();
     window.addEventListener('resize', onResize);
     return () => {
       window.removeEventListener('resize', onResize);
-      chart.dispose();
+      if (!chart.isDisposed()) chart.dispose();
     };
   }, []);
 
