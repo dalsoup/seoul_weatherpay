@@ -5,8 +5,11 @@ import { predict, type PredictRow } from '../lib/api'
 
 type Props = {
   onResult: (v: number, meta: { district?: string; date?: string }) => void
+  /** 대시보드/지도에서 선택된 구를 외부에서 주입 */
   district?: string
+  /** 값 변동 시 자동으로 예측 호출 (디바운스 내장) */
   autoPredictOnChange?: boolean
+  /** 자동 예측 디바운스(ms) */
   debounceMs?: number
 }
 
@@ -29,38 +32,42 @@ export default function PredictForm({
   const [error, setError] = useState<string | null>(null)
   const timerRef = useRef<number | null>(null)
 
+  // 외부 district 변경 시 동기화 (타입 안전)
   useEffect(() => {
-    if (district && district !== form.district) {
+    if (typeof district === 'string' && district.length > 0 && district !== form.district) {
       setForm((p) => ({ ...p, district }))
     }
   }, [district])
 
+  // 입력 핸들러
   const onChange = (k: keyof PredictRow, v: string) =>
     setForm((p) => ({
       ...p,
       [k]: k === 'district' || k === 'date' ? v : Number(v),
     }))
 
+  // 체감온도 계산 (KMA 2022) — 없으면 undefined
   const thi = useMemo(() => {
     const val = computeHeatIndexKMA2022(form.TMX, form.REH)
     return val ?? undefined
   }, [form.TMX, form.REH])
 
+  // 예측 호출
   const callPredict = async () => {
     setLoading(true)
     setError(null)
     try {
-      // ✅ 백엔드가 요구: '최고체감온도(℃)'  ← 섭씨 기호(℃)로 정확히
-      const payload = [
-        {
-          ...form,
-          ...(thi !== undefined
-            ? { '최고체감온도(℃)': Number(thi.toFixed(1)) }
-            : {}),
-        } as PredictRow & { '최고체감온도(℃)'?: number },
-      ]
+      // 안전값: thi가 없으면 TMX 사용, 소수1자리
+      const thiSafe = Number(((thi ?? form.TMX) as number).toFixed(1))
 
-      const res = await predict(payload)
+      // 🔑 서버 호환 위해 두 키 모두 포함
+      const row = {
+        ...form,
+        '최고체감온도(°C)': thiSafe,
+        '최고체감온도(℃)': thiSafe,
+      } as PredictRow & Record<'최고체감온도(°C)' | '최고체감온도(℃)', number>
+
+      const res = await predict([row]) // 백엔드: rows 배열
       const item = (res as any)?.items?.[0] ?? (res as any)
       onResult(item?.P_pred ?? 0, { district: item?.district, date: item?.date })
     } catch (err: any) {
@@ -71,17 +78,19 @@ export default function PredictForm({
     }
   }
 
+  // 제출(수동)
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     await callPredict()
   }
 
+  // 자동 예측 (디바운스)
   useEffect(() => {
     if (!autoPredictOnChange) return
     if (timerRef.current) window.clearTimeout(timerRef.current)
     timerRef.current = window.setTimeout(() => {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(form.date)) return
-      callPredict()
+      void callPredict()
     }, debounceMs)
     return () => {
       if (timerRef.current) window.clearTimeout(timerRef.current)
