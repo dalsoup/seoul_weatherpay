@@ -1,7 +1,15 @@
-// SeoulMap.tsx — echarts-for-react 사용 MWE
+// SeoulMap.tsx  ← 이 파일로 통째 교체
 import { useEffect, useState } from 'react';
-import ReactECharts from 'echarts-for-react';
-import * as echarts from 'echarts';
+
+// ★ 핵심: 'echarts/core' + 필요한 컴포넌트만 등록 → 단일 인스턴스 보장
+import * as echarts from 'echarts/core';
+import { MapChart } from 'echarts/charts';
+import { GeoComponent, TooltipComponent, VisualMapComponent } from 'echarts/components';
+import { CanvasRenderer } from 'echarts/renderers';
+echarts.use([MapChart, GeoComponent, TooltipComponent, VisualMapComponent, CanvasRenderer]);
+
+// 래퍼도 core 버전 사용
+import ReactEChartsCore from 'echarts-for-react/lib/core';
 
 export default function SeoulMap() {
   const [option, setOption] = useState<any>(null);
@@ -9,9 +17,8 @@ export default function SeoulMap() {
   useEffect(() => {
     let cancelled = false;
 
-    // 캐시 우회 + 서브경로 대응
-    const base = (import.meta as any).env?.BASE_URL ?? '/';
-    const url = base.replace(/\/$/, '/') + `seoul_districts.geojson?v=${Date.now()}`;
+    // public/ 에 파일이 있다면 이 경로면 충분
+    const url = `/seoul_districts.geojson?v=${Date.now()}`; // 캐시 무시
 
     (async () => {
       try {
@@ -20,22 +27,24 @@ export default function SeoulMap() {
         const geojson = await res.json();
         if (cancelled) return;
 
-        // 1) 먼저 등록
+        // 1) 먼저 동일 인스턴스에 등록
         echarts.registerMap('seoul', geojson);
 
-        // 2) 등록 성공 후에만 option 세팅 → 이때 렌더됨
-        // 동 레벨 데이터라면 구 이름 필드는 보통 'sggnm'
+        // (디버그) 등록 확인 — 여기서 false면 파일/경로 문제
+        // console.log('getMap?', !!(echarts as any).getMap?.('seoul'));
+
+        // 2) 등록 이후에만 옵션 제공
         setOption({
           series: [
             {
               type: 'map',
               map: 'seoul',
               nameProperty: 'sggnm', // 필요 시 'SIG_KOR_NM' 등으로 교체
+              emphasis: { label: { show: true } },
               data: [
                 { name: '종로구', value: 20 },
                 { name: '중구', value: 15 },
               ],
-              emphasis: { label: { show: true } },
             },
           ],
           tooltip: { trigger: 'item' },
@@ -51,12 +60,17 @@ export default function SeoulMap() {
     };
   }, []);
 
-  // 맵 등록 전에는 렌더하지 않음 → "Map not exists" 방지
-  if (!option) return <div style={{ height: 520, display: 'grid', placeItems: 'center' }}>Loading map…</div>;
+  if (!option) {
+    return (
+      <div style={{ height: 520, display: 'grid', placeItems: 'center' }}>
+        Loading map…
+      </div>
+    );
+  }
 
   return (
-    <ReactECharts
-      echarts={echarts}
+    <ReactEChartsCore
+      echarts={echarts}   // ★ 같은 인스턴스 주입 (중요!)
       option={option}
       notMerge
       lazyUpdate
