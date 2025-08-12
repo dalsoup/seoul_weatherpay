@@ -1,4 +1,4 @@
-
+import { computeHeatIndexKMA2022 } from '../utils/thermal';
 import React, { useState } from 'react'
 import { predict, type PredictRow } from '../lib/api'
 
