@@ -1,80 +1,88 @@
-// SeoulMap.tsx  ← 이 파일로 통째 교체
-import { useEffect, useState } from 'react';
+// SeoulMap.tsx — final
+import { useEffect, useRef, useState } from 'react'
 
-// ★ 핵심: 'echarts/core' + 필요한 컴포넌트만 등록 → 단일 인스턴스 보장
-import * as echarts from 'echarts/core';
-import { MapChart } from 'echarts/charts';
-import { GeoComponent, TooltipComponent, VisualMapComponent } from 'echarts/components';
-import { CanvasRenderer } from 'echarts/renderers';
-echarts.use([MapChart, GeoComponent, TooltipComponent, VisualMapComponent, CanvasRenderer]);
+// ✅ echarts는 core만 사용 (단일 인스턴스)
+import * as echarts from 'echarts/core'
+import { MapChart } from 'echarts/charts'
+import { TooltipComponent, VisualMapComponent } from 'echarts/components'
+import { CanvasRenderer } from 'echarts/renderers'
+echarts.use([MapChart, TooltipComponent, VisualMapComponent, CanvasRenderer])
 
-// 래퍼도 core 버전 사용
-import ReactEChartsCore from 'echarts-for-react/lib/core';
+// ✅ 래퍼도 core 버전 사용
+import ReactEChartsCore from 'echarts-for-react/lib/core'
 
 export default function SeoulMap() {
-  const [option, setOption] = useState<any>(null);
+  const [ready, setReady] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const optionRef = useRef<any>(null) // 옵션을 ref에 보관 (리렌더 최소화)
 
   useEffect(() => {
-    let cancelled = false;
+    let cancelled = false
 
-    // public/ 에 파일이 있다면 이 경로면 충분
-    const url = `/seoul_districts.geojson?v=${Date.now()}`; // 캐시 무시
-
-    (async () => {
+    ;(async () => {
       try {
-        const res = await fetch(url, { cache: 'no-store' });
-        if (!res.ok) throw new Error(`GeoJSON HTTP ${res.status}`);
-        const geojson = await res.json();
-        if (cancelled) return;
+        const res = await fetch(`/seoul_districts.geojson?v=${Date.now()}`, { cache: 'no-store' })
+        if (!res.ok) throw new Error(`GeoJSON HTTP ${res.status}`)
+        const geojson = await res.json()
+        if (cancelled) return
 
-        // 1) 먼저 동일 인스턴스에 등록
-        echarts.registerMap('seoul', geojson);
+        // 1) 지도 등록 (한 번만)
+        echarts.registerMap('seoul', geojson)
 
-        // (디버그) 등록 확인 — 여기서 false면 파일/경로 문제
-        // console.log('getMap?', !!(echarts as any).getMap?.('seoul'));
-
-        // 2) 등록 이후에만 옵션 제공
-        setOption({
+        // 2) 옵션 구성 — nameProperty: 'sggnm' (구 이름 키)
+        optionRef.current = {
+          tooltip: { trigger: 'item' },
+          visualMap: { min: 0, max: 100, calculable: true },
           series: [
             {
               type: 'map',
               map: 'seoul',
-              nameProperty: 'sggnm', // 필요 시 'SIG_KOR_NM' 등으로 교체
+              nameProperty: 'sggnm', // GeoJSON의 구 이름 키
               emphasis: { label: { show: true } },
               data: [
                 { name: '종로구', value: 20 },
                 { name: '중구', value: 15 },
+                // 필요 시 실제 데이터로 교체
               ],
             },
           ],
-          tooltip: { trigger: 'item' },
-          visualMap: { min: 0, max: 100, calculable: true },
-        });
-      } catch (e) {
-        console.error('[SeoulMap] failed to load map:', e);
+        }
+
+        setReady(true)
+      } catch (e: any) {
+        console.error('[SeoulMap] failed to load map:', e)
+        setError(e?.message ?? 'Map load failed')
       }
-    })();
+    })()
 
     return () => {
-      cancelled = true;
-    };
-  }, []);
+      cancelled = true
+    }
+  }, [])
 
-  if (!option) {
+  if (error) {
+    return (
+      <div style={{ height: 520, display: 'grid', placeItems: 'center', color: '#f87171' }}>
+        지도 로딩 실패 — {error}
+      </div>
+    )
+  }
+
+  if (!ready) {
     return (
       <div style={{ height: 520, display: 'grid', placeItems: 'center' }}>
         Loading map…
       </div>
-    );
+    )
   }
 
   return (
     <ReactEChartsCore
-      echarts={echarts}   // ★ 같은 인스턴스 주입 (중요!)
-      option={option}
+      echarts={echarts}     // ✅ 같은 인스턴스 주입
+      option={optionRef.current}
       notMerge
       lazyUpdate
       style={{ height: 520 }}
     />
-  );
+  )
 }
